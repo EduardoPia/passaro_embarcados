@@ -1,124 +1,148 @@
 #include <Arduino.h>
+#include <LiquidCrystal.h>
 
-#define DHT_PIN 4
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
-typedef struct SensorData
-{
-  int32_t umidade;
-  int32_t temp;
-  int32_t checksum;
-} SensorData;
+static const int POT_pin   = -1;
+static const int LDR_pin   = -1;
+static const int SERVO_pin = -1;
+static const int LED_pin   = -1;
 
-SensorData data;
+static const int res = 12;
+static const int freq = 50;
+static const int channel = 1;
+static const int max_duty = -1;
+static const int min_duty = -1;
 
+int POT_value = 0;
+int LDR_value = 0;
+int period    = -1;
+int period_blink = -1;
+
+enum FLIGHT_MODE {Auto, Manual} mode;
+FLIGHT_MODE mode = Manual; 
+
+enum DAY_TIME {Day, NightFall, Night} mode;
+DAY_TIME day_time = Day; 
+
+void read_pot();
+void read_LDR();
+void update_servo();
+void update_eyes();
+void update_LCD();
+void receive_command();
 
 // put function declarations here:
-bool read_sensor(SensorData& data);
+void 
+setup() 
+{
+	analogReadResolution(res); // pot
+	pinMode(LDR_pin, INPUT_PULLUP); // ldr
+	pinMode(LED_pin,OUTPUT);
 
-bool erro_leitura(int i);
+	ledcSetup(channel, freq, res); // servo
+	ledcAttachPin(SERVO_pin, channel);
 
-void setup() {
+	lcd.begin(16, 2);
+	lcd.print("Time to FLY!");
+
 	Serial.begin(9600);
 }
 
-void loop() 
+void 
+loop() 
 {
-	delay(5000);
-	if(read_sensor(data))
-	{
-		Serial.println("--------------------------------------------");
-		Serial.println("Resposta: ");
-		Serial.print("Umidade:");
-		Serial.println(data.umidade);
-		Serial.print("Temperatura:");
-		Serial.println(data.temp);
-		Serial.print("Checksum:");
-		Serial.println(data.checksum);
-	}
-}
+	// Sensores
+	read_pot();
+	read_LDR();
 
-bool erro_leitura(int i)
-{
-	Serial.print("Erro: sem resposta do sensor, ");
-	Serial.println(i);
-	return false;
+	// Cargas
+	update_servo();
+	update_eyes();
+
+	// User
+	update_LCD();
+	receive_command();
 }
 
 // put function definitions here:
-bool read_sensor(SensorData& data)
+void 
+read_pot() 
 {
-	unsigned long tempo;
-	data.temp     = 0;
-	data.umidade  = 0;
-	data.checksum = 0;
+	POT_value = analogRead(POT_pin);
+}
 
-	// Pede a resposta
-	pinMode(DHT_PIN, OUTPUT);
-	digitalWrite(DHT_PIN, LOW);
-	delay(18);
-	digitalWrite(DHT_PIN, HIGH);
-	delayMicroseconds(30);
-	pinMode(DHT_PIN, INPUT);
+void 
+read_LDR() 
+{
+	LDR_value = digitalRead(LDR_pin);
+}
 
-	// Etapa de reconhecimento (resposta do DHT)
-	// Espera descer
-	tempo = micros();
-	while(digitalRead(DHT_PIN) == HIGH)
+void 
+update_servo()
+{
+	if(mode == Auto)
 	{
-		if((micros() - tempo) > 40)
-			return erro_leitura(0);
+		double time = millis() % period;
+		double omega = 2 * PI / period;
+		double angle = time * omega;
+		double amplitude = (max_duty - min_duty)/2;
+		int duty = (min_duty + amplitude) + amplitude * sin(angle);
+		ledcWrite(channel, duty);
+	} else {
+		int duty = map(POT_value, 0, 4095, min_duty, max_duty);
+		ledcWrite(channel, duty);
 	}
-	// Espera subir
-	tempo = micros();
-	while(digitalRead(DHT_PIN) == LOW)
-	{
-		if((micros() - tempo) > 160)
-			return erro_leitura(1);
-	}
-	// Quando descer novamente, começa a etapa de leitura dos dados
-	tempo = micros();
-	while(digitalRead(DHT_PIN) == LOW)
-	{
-		if((micros() - tempo) > 160)
-			return erro_leitura(2);
+}
+
+void 
+update_eyes()
+{
+	double time = millis() % period_blink;
+	if(time < (0.8*period_blink)) {
+		digitalWrite(LED_pin,HIGH);
+	} else {
+		digitalWrite(LED_pin,LOW);
+	} 
+
+}
+
+
+void 
+update_LCD()
+{
+	if (day_time == Day) {
+		lcd.setCursor(0,0);
+		lcd.print("Dia: Voando");
+
+	} else if (day_time == NightFall) {
+		lcd.setCursor(0,0);
+		lcd.print("Noite: Fugindo");
+	} else {
+		lcd.setCursor(0,0);
+		lcd.print("Noite: Dormindo");
 	}
 
-	// Leitura dos dados
-	for(int i = 0; i < 40; i++)
-	{
-		int bit;
-		// Espera os 50 us de start
-		tempo = micros();
-		while(digitalRead(DHT_PIN) == LOW)
-		{
-			if((micros() - tempo) > 100)
-				return erro_leitura(3);
-		}
-
-		// Conta o tempo em nível alto
-		tempo = micros();
-		while(digitalRead(DHT_PIN) == HIGH)
-		{
-			if((micros() - tempo) > 140)
-				return erro_leitura(4);
-		}
-
-		// associe o tempo ao bit
-		unsigned long dt = (micros() - tempo);
-		if      ((10 < dt) && (dt < 50))
-			bit = 0;
-		else if ((50 < dt) && (dt < 100))
-			bit = 1;
-		else
-			return erro_leitura(dt);
-		
-		// Salva na variável correta
-		if(i < 8)
-			data.umidade = data.umidade*2 + bit;
-		else if((i > 15) && (i < 24))
-			data.temp = data.temp*2 + bit;
-		else if(i > 31)
-			data.checksum = data.checksum*2 + bit;
+	if(mode == Manual) {
+		lcd.setCursor(0,1);
+		lcd.print("Modo: Manual");
+	} else {
+		lcd.setCursor(0,1);
+		lcd.print("Modo: Auto");
 	}
-	return true;
+}
+
+void
+receive_command()
+{
+	String command; // variável para o dado recebido
+	if (Serial.available() > 0) {
+        // lê do buffer o dado recebido:
+        command = Serial.readString();
+
+        // responde com o dado recebido:
+        Serial.print("I received: ");
+        Serial.println(command);
+      }
 }
