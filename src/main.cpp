@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <LiquidCrystal.h>
-
+#include <string.h>
+ 
 // const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 // LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
@@ -15,10 +16,10 @@ static const int channel   = 1;
 static const int T_high_ms = 2;
 static const int T_low_ms  = 1;
 
-int POT_value    =  0;
-int LDR_value    =  0; 
-int period       = -1;
-int period_blink = -1;
+int POT_value    = 0;
+int LDR_value    = 0; 
+int period       = 5000; // em ms
+int period_blink = 2000;
 
 static const int max_duty = (T_high_ms * freq * 4095 / 1000); 
 static const int min_duty = (T_low_ms * freq * 4095 / 1000); 
@@ -28,6 +29,7 @@ FLIGHT_MODE mode = Manual;
 
 enum DAY_TIME {Day, NightFall, Night};
 DAY_TIME day_time = Day; 
+int nightfall_begin = millis();
 
 void read_pot();
 void read_LDR();
@@ -50,7 +52,10 @@ setup()
 	// lcd.begin(16, 2);
 	// lcd.print("Time to FLY!");
 
-	Serial.begin(9600);
+	Serial.begin(115200);
+	Serial.println("------------------------");
+	Serial.println("Modos: manual ou automatico");
+	Serial.print("Digite o modo: ");
 }
 
 void 
@@ -80,6 +85,11 @@ void
 read_LDR() 
 {
 	LDR_value = digitalRead(LDR_pin);
+	if(LDR_value == HIGH) {
+		day_time = Day;
+	} else {
+		day_time = Night;
+	}
 }
 
 void 
@@ -87,16 +97,19 @@ update_servo()
 {
 	if(mode == Auto)
 	{
-		double time = millis() % period;
-		double omega = 2 * PI / period;
-		double angle = time * omega;
-		double amplitude = (max_duty - min_duty)/2;
-		int duty = (min_duty + amplitude) + amplitude * sin(angle);
-		ledcWrite(channel, duty);
+		const double amplitude = (max_duty - min_duty)/2;
+		const int offset = (min_duty + amplitude);
+		if(day_time == Day) {
+			double time = millis() % period;
+			double omega = 2 * PI / period;
+			double angle = time * omega;
+			int duty = offset + amplitude * sin(angle);
+			ledcWrite(channel, duty);
+		} else {
+			ledcWrite(channel, offset);
+		}
 	} else {
 		int duty = map(POT_value, 0, 4095, min_duty, max_duty);
-		Serial.print("duty: ");
-		Serial.println(duty);
 		ledcWrite(channel, duty);
 	}
 }
@@ -104,15 +117,12 @@ update_servo()
 void 
 update_eyes()
 {
-	digitalWrite(LED_pin, LDR_value);
-
-	// double time = millis() % period_blink;
-	// if(time < (0.8*period_blink)) {
-	// 	digitalWrite(LED_pin,HIGH);
-	// } else {
-	// 	digitalWrite(LED_pin,LOW);
-	// } 
-
+	double time = millis() % period_blink;
+	if(time < (0.8*period_blink)) {
+		digitalWrite(LED_pin, HIGH);
+	} else {
+		digitalWrite(LED_pin, LOW);
+	} 
 }
 
 
@@ -143,13 +153,41 @@ update_LCD()
 void
 receive_command()
 {
-	// String command; // variável para o dado recebido
-	// if (Serial.available() > 0) {
-    //     // lê do buffer o dado recebido:
-    //     command = Serial.readString();
+	static char str[100];
+	static int i = 0;
+	char c; // variável para o dado recebido
+	if (Serial.available() > 0) {
+        // lê do buffer o dado recebido:
+        c = Serial.read();
+		if(c == '\r') {
+			// ignora
+		} else if(c == '\n') {
+			Serial.print(c);
+			i = 0;
+			if(strcmp(str, "manual") == 0) {
+				Serial.println("Modo configurado para manual!");
+				mode = Manual;
+			} else if (strcmp(str,"automatico") == 0) {
+				Serial.println("Modo configurado para automatico!");
+				mode = Auto;
+			} else {
+				Serial.print("Modo ");
+				Serial.print(str);
+				Serial.println(" incorreto");
+			}
+			Serial.println("------------------------");
+			Serial.println("Modos: manual ou automatico");
+			Serial.print("Digite o modo: ");
+		} else {
+			Serial.print(c);
+			str[i] = c;
+			str[i+1] = '\0';
+			i++;
+		}
 
-    //     // responde com o dado recebido:
-    //     Serial.print("I received: ");
-    //     Serial.println(command);
-    // }
+
+        // // responde com o dado recebido:
+        // Serial.print("I received: ");
+        // Serial.println(c);
+    }
 }
