@@ -1,24 +1,27 @@
 #include <Arduino.h>
-// #include <LiquidCrystal.h>
+#include <LiquidCrystal.h>
 
 // const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 // LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
-static const int POT_pin   = 4;
-static const int LDR_pin   = 18;
-static const int SERVO_pin = 27;
-static const int LED_pin   = 14;
+static const int POT_pin   =  4; // entrada analogica
+static const int LDR_pin   = 18; // leitura digital
+static const int SERVO_pin = 27; // pwm
+static const int LED_pin   = 14; // saida digital
 
-static const int res = 12;
-static const int freq = 50;
-static const int channel = 1;
-static const int max_duty = -1;
-static const int min_duty = -1;
+static const int res       = 12;
+static const int freq      = 50;
+static const int channel   = 1;
+static const int T_high_ms = 2;
+static const int T_low_ms  = 1;
 
-int POT_value = 0;
-int LDR_value = 0;
-int period    = -1;
+int POT_value    =  0;
+int LDR_value    =  0; 
+int period       = -1;
 int period_blink = -1;
+
+static const int max_duty = (T_high_ms * freq * 4095 / 1000); 
+static const int min_duty = (T_low_ms * freq * 4095 / 1000); 
 
 enum FLIGHT_MODE {Auto, Manual};
 FLIGHT_MODE mode = Manual; 
@@ -92,6 +95,8 @@ update_servo()
 		ledcWrite(channel, duty);
 	} else {
 		int duty = map(POT_value, 0, 4095, min_duty, max_duty);
+		Serial.print("duty: ");
+		Serial.println(duty);
 		ledcWrite(channel, duty);
 	}
 }
@@ -99,7 +104,8 @@ update_servo()
 void 
 update_eyes()
 {
-	digitalWrite(LED_pin, HIGH);
+	digitalWrite(LED_pin, LDR_value);
+
 	// double time = millis() % period_blink;
 	// if(time < (0.8*period_blink)) {
 	// 	digitalWrite(LED_pin,HIGH);
@@ -137,13 +143,13 @@ update_LCD()
 void
 receive_command()
 {
-	String command; // variável para o dado recebido
-	if (Serial.available() > 0) {
-        // lê do buffer o dado recebido:
-        command = Serial.readString();
+	// String command; // variável para o dado recebido
+	// if (Serial.available() > 0) {
+    //     // lê do buffer o dado recebido:
+    //     command = Serial.readString();
 
-        // responde com o dado recebido:
-        Serial.print("I received: ");
-        Serial.println(command);
-      }
+    //     // responde com o dado recebido:
+    //     Serial.print("I received: ");
+    //     Serial.println(command);
+    // }
 }
