@@ -2,37 +2,38 @@
 #include <LiquidCrystal.h>
 #include <string.h>
  
-// const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
-// LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+const int rs = 22, en = 23, d4 = 5, d5 = 18, d6 = 19, d7 = 21;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 static const int POT_pin   =  4; // entrada analogica
-static const int LDR_pin   = 18; // leitura digital
-static const int SERVO_pin = 27; // pwm
+static const int button_pin   = 13; // leitura digital
+static const int SERVO_pin = 12; // pwm
 static const int LED_pin   = 14; // saida digital
 
 static const int res       = 12;
 static const int freq      = 50;
 static const int channel   = 1;
-static const int T_high_ms = 2;
-static const int T_low_ms  = 1;
+// static const int T_high_ms = 2;
+// static const int T_low_ms  = 1;
 
 int POT_value    = 0;
 int LDR_value    = 0; 
-int period       = 5000; // em ms
+int period       = 1500; // em ms
 int period_blink = 2000;
 
-static const int max_duty = (T_high_ms * freq * 4095 / 1000); 
-static const int min_duty = (T_low_ms * freq * 4095 / 1000); 
+// static const int max_duty = (T_high_ms * freq * 4095 / 1000); 
+// static const int min_duty = (T_low_ms * freq * 4095 / 1000); 
+static const int min_duty = 211;
+static const int max_duty = 300;
 
 enum FLIGHT_MODE {Auto, Manual};
 FLIGHT_MODE mode = Manual; 
 
-enum DAY_TIME {Day, NightFall, Night};
-DAY_TIME day_time = Day; 
-int nightfall_begin = millis();
+enum COMPORTAMENTO {Dormindo, Voando};
+COMPORTAMENTO comp = Voando; 
 
 void read_pot();
-void read_LDR();
+void read_Button();
 void update_servo();
 void update_eyes();
 void update_LCD();
@@ -43,14 +44,13 @@ void
 setup() 
 {
 	analogReadResolution(res); // pot
-	pinMode(LDR_pin, INPUT_PULLUP); // ldr
+	pinMode(button_pin, INPUT_PULLUP); // ldr
 	pinMode(LED_pin, OUTPUT);
 
 	ledcSetup(channel, freq, res); // servo
 	ledcAttachPin(SERVO_pin, channel);
 
-	// lcd.begin(16, 2);
-	// lcd.print("Time to FLY!");
+	lcd.begin(16,2);
 
 	Serial.begin(115200);
 	Serial.println("------------------------");
@@ -63,7 +63,7 @@ loop()
 {
 	// Sensores
 	read_pot();
-	read_LDR();
+	read_Button();
 
 	// Cargas
 	update_servo();
@@ -82,13 +82,13 @@ read_pot()
 }
 
 void 
-read_LDR() 
+read_Button() 
 {
-	LDR_value = digitalRead(LDR_pin);
+	LDR_value = digitalRead(button_pin);
 	if(LDR_value == HIGH) {
-		day_time = Day;
+		comp = Voando;
 	} else {
-		day_time = Night;
+		comp = Dormindo;
 	}
 }
 
@@ -97,11 +97,11 @@ update_servo()
 {
 	if(mode == Auto)
 	{
-		const double amplitude = (max_duty - min_duty)/2;
+		const double amplitude = ((double) (max_duty - min_duty))/2;
 		const int offset = (min_duty + amplitude);
-		if(day_time == Day) {
+		if(comp == Voando) {
 			double time = millis() % period;
-			double omega = 2 * PI / period;
+			double omega = 2 * PI / ((double) period);
 			double angle = time * omega;
 			int duty = offset + amplitude * sin(angle);
 			ledcWrite(channel, duty);
@@ -129,25 +129,33 @@ update_eyes()
 void 
 update_LCD()
 {
-	// if (day_time == Day) {
-	// 	lcd.setCursor(0,0);
-	// 	lcd.print("Dia: Voando");
+	static FLIGHT_MODE mod_ant = mode;
+	static COMPORTAMENTO comp_ant = comp;
+	static int need_update = 1;
 
-	// } else if (day_time == NightFall) {
-	// 	lcd.setCursor(0,0);
-	// 	lcd.print("Noite: Fugindo");
-	// } else {
-	// 	lcd.setCursor(0,0);
-	// 	lcd.print("Noite: Dormindo");
-	// }
-
-	// if(mode == Manual) {
-	// 	lcd.setCursor(0,1);
-	// 	lcd.print("Modo: Manual");
-	// } else {
-	// 	lcd.setCursor(0,1);
-	// 	lcd.print("Modo: Auto");
-	// }
+	if(comp != comp_ant) {
+		comp_ant = comp;
+		need_update = 1;
+	}
+	if(mode != mod_ant) {
+		mod_ant = mode;
+		need_update = 1;
+	}
+	if(need_update){
+		need_update = 0;
+		lcd.clear();
+		if(comp == Voando) {
+			lcd.print("Voando");
+		} else {
+			lcd.print("Dormindo...");
+		}
+		lcd.setCursor(0,1);
+		if(mode == Manual) {
+			lcd.print("Manual");
+		} else {
+			lcd.print("Automatico");
+		}
+	}
 }
 
 void
@@ -184,10 +192,5 @@ receive_command()
 			str[i+1] = '\0';
 			i++;
 		}
-
-
-        // // responde com o dado recebido:
-        // Serial.print("I received: ");
-        // Serial.println(c);
     }
 }
